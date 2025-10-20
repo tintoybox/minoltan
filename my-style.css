@@ -3,7 +3,5 @@ body{background:#f8f8f8;font-family:Helvetica Neue,Arial,sans-serif;color:#333;m
 #container img,#container-inner img,#pagebody img,#pagebody-inner img,#alpha img,#alpha-inner img,.entry-content img,.blog-content img,.post img,.entry img,.entry-body img,.content-body img,.post-body img,.main-content img,.article img,.content img{width:100%!important;max-width:100%;height:auto!important;margin:0 auto 15px auto!important;padding:0!important;display:block;border-radius:5px}
 .sidebar,.side,#sidebar{display:none}
 #content,.content,.main,.pagebody-inner{width:100%!important;margin:0 auto;padding:0;box-sizing:border-box;text-align:center}
-#banner,#banner-inner,#banner-inner-bottom,#banner-description,.blog-header,.header{position:relative;margin:0;padding:0}
-.header-image{display:block;width:100%;max-width:800px;height:100%!important;object-fit:cover;margin:0 auto;padding:0;border-radius:0}
-#banner-inner{min-height:150px}
-#banner-description p,#banner-description br{display:none}
+#banner-inner{position:relative}
+.header-image{display:block;width:100%;max-width:800px;height:auto;margin:0 auto 10px auto;padding:0;border-radius:5px}
