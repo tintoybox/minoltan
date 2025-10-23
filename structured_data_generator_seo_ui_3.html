@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>構造化データジェネレータ（フォーム幅300px＋夜間モード対応＋整形切替）</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root {
+  --bg:#f8fafc;
+  --text:#111;
+  --card:#fff;
+  --border:#e2e8f0;
+  --accent:#2563eb;
+  --danger:#dc2626;
+  --code-bg:#1e293b;
+  --code-text:#e2e8f0;
+}
+body.dark {
+  --bg:#0f172a;
+  --text:#e2e8f0;
+  --card:#1e293b;
+  --border:#334155;
+  --accent:#3b82f6;
+  --danger:#ef4444;
+  --code-bg:#0f172a;
+  --code-text:#e2e8f0;
+}
+body{
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  padding:16px 24px;
+  max-width:1000px; /* ← 全体幅は1000px */
+  margin:0; /* 左寄せ */
+  transition:background 0.3s,color 0.3s;
+}
+h1{font-size:20px;margin-bottom:10px}
+button,input,select,textarea{font-family:inherit}
+button{
+  background:var(--accent);color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;
+  transition:background 0.3s,color 0.3s;
+}
+button.ghost{background:var(--card);border:1px solid var(--accent);color:var(--accent)}
+button.danger{background:var(--danger);color:#fff;border:none}
+button.theme-toggle{margin-left:auto}
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:8px;
+  padding:12px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.05);
+  transition:background 0.3s,border-color 0.3s;
+}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+.grid{display:grid;grid-template-columns:1fr 500px;gap:16px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+pre{
+  background:var(--code-bg);color:var(--code-text);
+  padding:10px;border-radius:6px;overflow:auto;max-height:400px;font-size:13px;
+}
+label{display:block;font-size:14px;margin-top:6px}
+input[type=text],input[type=date],textarea,select{
+  width:300px; /* ← 入力欄幅を固定（300px） */
+  max-width:100%;
+  padding:6px;border:1px solid var(--border);border-radius:6px;margin-top:3px;
+  background:var(--card);color:var(--text);
+}
+textarea{resize:vertical;min-height:80px}
+.photo-card{position:relative;width:320px;} /* ← カード全体も少し狭め */
+.remove-icon{
+  position:absolute;top:6px;right:8px;background:transparent;
+  color:var(--danger);border:none;font-size:18px;cursor:pointer
+}
+.status{font-size:13px;padding:6px;border-radius:6px}
+.status.ok{background:#dcfce7;color:#166534}
+.status.warn{background:#fef9c3;color:#854d0e}
+.small{font-size:13px;color:#64748b}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+.col{flex:1}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+<h1>構造化データジェネレータ（フォーム幅300px＋夜間モード対応＋整形切替）</h1>
+<p class="small">ImageObject と BlogPosting を組み合わせて JSON-LD を生成できます。</p>
+
+<div class="controls">
+  <button id="addTop">＋ 写真フォームを追加</button>
+  <button id="generateBtn">JSON-LD を生成</button>
+  <button id="downloadBtn" class="ghost">JSON をダウンロード</button>
+  <button id="copyBtn" class="ghost">JSON をコピー</button>
+  <button id="toggleFormat" class="ghost">📏 整形：ON</button>
+  <button id="themeToggle" class="ghost theme-toggle">🌙 夜間モード</button>
+  <label style="margin-left:auto;font-size:13px;">CSV 読み込み
+    <input id="csvInput" type="file" accept=".csv,text/csv" style="margin-top:4px;">
+  </label>
+</div>
+
+<div class="grid">
+  <div>
+    <div id="photosContainer"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button id="addBottom" class="ghost">＋ フォームを追加（下部）</button>
+      <button id="clearAll" class="danger">すべて削除</button>
+    </div>
+
+    <div class="card" style="margin-top:12px;width:fit-content;">
+      <h2 style="font-size:16px;margin-bottom:6px;">CSV ヘッダ例</h2>
+<pre>imageTitle,caption,contentUrl,creator,datePublished,locationName,latitude,longitude,locality,region,camera
+備中国分寺の赤米田んぼ,"秋風に揺れる赤米の田んぼ",https://example.com/photo1.jpg,Tsuneaki Hiramatsu,2025-09-06,備中国分寺,34.6725,133.8342,総社市,岡山県,"Nikon Z7, NIKKOR Z 24-70mm f/4 S"</pre>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card" style="width:320px;">
+      <h2 style="font-size:16px;margin-bottom:6px;">BlogPosting（任意）</h2>
+      <label>記事URL：<input type="text" id="bp_url" placeholder="https://example.com/blog/post"></label>
+      <label>記事タイトル：<input type="text" id="bp_headline"></label>
+      <label>代表画像URL：<input type="text" id="bp_image"></label>
+      <label>著者名：
+        <select id="bp_author_select">
+          <option value="Tsuneaki Hiramatsu">Tsuneaki Hiramatsu</option>
+          <option value="">その他</option>
+        </select>
+        <input type="text" id="bp_author_custom" placeholder="自由入力">
+      </label>
+      <label>投稿日：<input type="date" id="bp_date"></label>
+      <label>本文：<textarea id="bp_body"></textarea></label>
+    </div>
+
+    <div class="card" style="width:320px;">
+      <h3 style="font-size:15px;">出力プレビュー / ステータス</h3>
+      <div id="status" class="status">未生成です。</div>
+      <details style="margin-top:6px;"><summary>生成結果を表示</summary><pre id="outputPre"></pre></details>
+    </div>
+  </aside>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', ()=>{
+  const photosContainer=document.getElementById('photosContainer');
+  const csvInput=document.getElementById('csvInput');
+  const statusEl=document.getElementById('status');
+  const outputPre=document.getElementById('outputPre');
+  const themeBtn=document.getElementById('themeToggle');
+  const formatBtn=document.getElementById('toggleFormat');
+  let lastGenerated=null;
+  let pretty=true;
+
+  // 夜間モード
+  const prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if(prefersDark)document.body.classList.add('dark');
+  themeBtn.onclick=()=>{
+    document.body.classList.toggle('dark');
+    themeBtn.textContent=document.body.classList.contains('dark')?'☀️ ライトモード':'🌙 夜間モード';
+  };
+
+  // 整形切替
+  formatBtn.onclick=()=>{
+    pretty=!pretty;
+    formatBtn.textContent=pretty?"📏 整形：ON":"📏 整形：OFF";
+    if(lastGenerated)outputPre.textContent=JSON.stringify(lastGenerated,null,pretty?2:0);
+  };
+
+  const uid=()=>crypto.randomUUID();
+  const updateStatus=(msg,ok=true)=>{statusEl.textContent=msg;statusEl.className="status "+(ok?"ok":"warn");};
+
+  function createPhotoCard(prefill={}){
+    const id=uid();
+    const card=document.createElement('div');
+    card.className='card photo-card';
+    card.dataset.id=id;
+    card.innerHTML=`
+      <button class="remove-icon" title="削除">✕</button>
+      <label>タイトル：<input type="text" id="imageTitle_${id}" value="${prefill.imageTitle||''}"></label>
+      <label>説明文：<textarea id="caption_${id}">${prefill.caption||''}</textarea></label>
+      <label>画像URL：<input type="text" id="contentUrl_${id}" value="${prefill.contentUrl||''}"></label>
+      <label>撮影者名：<input type="text" id="creator_${id}" value="${prefill.creator||''}"></label>
+      <label>撮影日：<input type="date" id="date_${id}" value="${prefill.datePublished||''}"></label>
+      <label>撮影地名：<input type="text" id="locationName_${id}" value="${prefill.locationName||''}"></label>
+      <label>緯度：<input type="text" id="latitude_${id}" value="${prefill.latitude||''}"></label>
+      <label>経度：<input type="text" id="longitude_${id}" value="${prefill.longitude||''}"></label>
+      <label>市区町村：<input type="text" id="locality_${id}" value="${prefill.locality||''}"></label>
+      <label>都道府県：<input type="text" id="region_${id}" value="${prefill.region||''}"></label>
+      <label>カメラ情報：<input type="text" id="camera_${id}" value="${prefill.camera||''}"></label>`;
+    card.querySelector('.remove-icon').onclick=()=>{card.remove();updateStatus("写真フォームを削除しました");};
+    photosContainer.appendChild(card);
+  }
+
+  document.getElementById('addTop').onclick=()=>{createPhotoCard();updateStatus("フォーム追加");};
+  document.getElementById('addBottom').onclick=()=>{createPhotoCard();updateStatus("フォーム追加（下）");};
+  document.getElementById('clearAll').onclick=()=>{if(confirm("すべて削除しますか？")){photosContainer.innerHTML='';updateStatus("全削除しました");}};
+
+  csvInput.addEventListener('change',e=>{
+    const f=e.target.files[0];if(!f)return;
+    Papa.parse(f,{header:true,complete:function(res){
+      res.data.forEach(r=>createPhotoCard(r));
+      updateStatus(res.data.length+"件を読み込みました");
+    }});
+  });
+
+  function collectImages(){
+    const imgs=[];
+    photosContainer.querySelectorAll('.photo-card').forEach(card=>{
+      const id=card.dataset.id;
+      const g=k=>document.getElementById(k+'_'+id)?.value.trim();
+      const img={
+        "@type":"ImageObject",
+        name:g('imageTitle'),
+        caption:g('caption'),
+        contentUrl:g('contentUrl'),
+        creator:g('creator')?{"@type":"Person","name":g('creator')}:undefined,
+        datePublished:g('date'),
+        locationCreated:{
+          "@type":"Place",
+          name:g('locationName'),
+          geo:{"@type":"GeoCoordinates","latitude":g('latitude'),"longitude":g('longitude')},
+          address:{"@type":"PostalAddress","addressLocality":g('locality'),"addressRegion":g('region'),"addressCountry":"JP"}
+        },
+        exifData:g('camera')?{"@type":"PropertyValue","name":"Camera","value":g('camera')}:undefined
+      };
+      imgs.push(img);
+    });
+    return imgs;
+  }
+
+  document.getElementById('generateBtn').onclick=()=>{
+    const imgs=collectImages();
+    const bp={
+      "@type":"BlogPosting",
+      headline:document.getElementById('bp_headline').value.trim(),
+      image:imgs[0]?.contentUrl,
+      author:{"@type":"Person","name":document.getElementById('bp_author_custom').value.trim()||document.getElementById('bp_author_select').value},
+      datePublished:document.getElementById('bp_date').value,
+      articleBody:document.getElementById('bp_body').value.trim(),
+      url:document.getElementById('bp_url').value.trim()
+    };
+    const out=[bp,...imgs]; out[0]["@context"]="https://schema.org";
+    outputPre.textContent=JSON.stringify(out,null,pretty?2:0);
+    lastGenerated=out;
+    updateStatus("JSON-LDを生成しました");
+  };
+
+  document.getElementById('copyBtn').onclick=async()=>{
+    if(!lastGenerated)return alert("生成してください");
+    await navigator.clipboard.writeText(JSON.stringify(lastGenerated,null,pretty?2:0));
+    updateStatus("JSONをコピーしました");
+  };
+});
+</script>
+</body>
+</html>
