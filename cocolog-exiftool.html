@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Cocolog投稿用テンプレート自動作成ツール</title>
-  <!-- exifr ライブラリ（CDN） -->
   <script src="https://cdn.jsdelivr.net/npm/exifr@7/dist/full.umd.min.js"></script>
   <style>
     body {font-family: 'Segoe UI', sans-serif;max-width: 800px;margin: 2rem auto;padding: 1rem;background: #f9f9fb;color: #333;}
@@ -74,8 +73,8 @@
     <strong>使い方：</strong><br>
     1. 写真をアップロード<br>
     2. 生成されたコードを「コピー」<br>
-    3. Cocologの投稿で「<strong>HTML編集</strong>」モードに切り替え<br>
-    4. ペーストして保存 → 完了！
+    3. Cocologに写真をアップロード → URLを<img src="">に置き換え<br>
+    4. Cocolog投稿で「<strong>HTML編集</strong>」モードに切り替え → ペーストして保存 → 完了！
   </div>
 
   <footer>© 2025 Cocolog JSON-LD Template Generator</footer>
@@ -120,26 +119,24 @@
 
     async function processImage(file) {
       try {
-        // 1. DataURL でプレビューとJSON-LD用
-        const dataUrl = await new Promise((resolve) => {
+        // プレビュー用 DataURL（出力には使わない）
+        const previewDataUrl = await new Promise((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
           reader.readAsDataURL(file);
         });
+        preview.innerHTML = `<img src="${previewDataUrl}" alt="プレビュー" />`;
 
-        // プレビュー表示
-        preview.innerHTML = `<img src="${dataUrl}" alt="プレビュー" />`;
-
-        // 2. ArrayBuffer でEXIF抽出（exifr使用）
+        // EXIF抽出用 ArrayBuffer
         const arrayBuffer = await new Promise((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
           reader.readAsArrayBuffer(file);
         });
 
-        const exifObj = await exifr.parse(arrayBuffer, true);  // true: すべてのタグ取得
+        const exifObj = await exifr.parse(arrayBuffer, true);
 
-        // 画像サイズ取得（exifrから直接）
+        // 画像サイズ取得
         const width = exifObj.PixelXDimension || 0;
         const height = exifObj.PixelYDimension || 0;
 
@@ -155,12 +152,11 @@
           lng = exifObj.longitude;
         }
 
-        // JSON-LD生成
+        // JSON-LD生成（contentUrlなし）
         const jsonLd = {
           "@context": "https://schema.org",
           "@type": "ImageObject",
           "name": file.name,
-          "contentUrl": dataUrl,
           "encodingFormat": file.type,
           "width": width,
           "height": height,
@@ -197,8 +193,8 @@
         });
 
         const htmlTemplate = `
-<!-- 写真 -->
-<p><img src="${dataUrl}" alt="${file.name}" style="max-width:100%; height:auto;" /></p>
+<!-- 写真（Cocologアップロード後、URLを置き換えてください） -->
+<p><img src="YOUR_PHOTO_URL_HERE" alt="${file.name}" style="max-width:100%; height:auto;" /></p>
 
 <!-- 構造化データ（JSON-LD） -->
 <script type="application/ld+json">
