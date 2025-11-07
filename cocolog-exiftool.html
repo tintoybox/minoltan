@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Cocolog投稿用テンプレート自動作成ツール</title>
-  <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
+  <!-- exifr ライブラリ（CDN） -->
+  <script src="https://cdn.jsdelivr.net/npm/exifr@7/dist/full.umd.min.js"></script>
   <style>
     body {font-family: 'Segoe UI', sans-serif;max-width: 800px;margin: 2rem auto;padding: 1rem;background: #f9f9fb;color: #333;}
     h1 { color: #2c3e50; text-align: center; }
@@ -117,73 +118,65 @@
       processImage(file);
     }
 
-    function processImage(file) {
-      let dataUrl = '';
-      let exifObj = {};
+    async function processImage(file) {
+      try {
+        // 1. DataURL でプレビューとJSON-LD用
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
 
-      // 1. DataURL で画像表示 + JSON-LD用
-      const readerDataUrl = new FileReader();
-      readerDataUrl.onload = function(e) {
-        dataUrl = e.target.result;
+        // プレビュー表示
         preview.innerHTML = `<img src="${dataUrl}" alt="プレビュー" />`;
 
-        // 2. ArrayBuffer で EXIF抽出
-        const readerExif = new FileReader();
-        readerExif.onload = function(e2) {
-          try {
-            // ここが重要！ArrayBufferを渡す
-            exifObj = piexif.load(e2.target.result);
-          } catch (err) {
-            console.warn("EXIF読み込み失敗:", err);
-            exifObj = {};
-          }
-          generateTemplate(file, dataUrl, exifObj);
-        };
-        readerExif.readAsArrayBuffer(file);  // ArrayBuffer！
-      };
-      readerDataUrl.readAsDataURL(file);  // DataURL！
-    }
+        // 2. ArrayBuffer でEXIF抽出（exifr使用）
+        const arrayBuffer = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsArrayBuffer(file);
+        });
 
-    function generateTemplate(file, dataUrl, exifObj) {
-      const zeroIFD = exifObj["0th"] || {};
-      const gpsIFD = exifObj["GPS"] || {};
+        const exifObj = await exifr.parse(arrayBuffer, true);  // true: すべてのタグ取得
 
-      const make = zeroIFD[piexif.ImageIFD.Make];
-      const model = zeroIFD[piexif.ImageIFD.Model];
-      const dateTime = zeroIFD[piexif.ImageIFD.DateTime];
+        // 画像サイズ取得（exifrから直接）
+        const width = exifObj.PixelXDimension || 0;
+        const height = exifObj.PixelYDimension || 0;
 
-      let lat = null, lng = null;
-      if (gpsIFD[piexif.GPSIFD.GPSLatitude] && gpsIFD[piexif.GPSIFD.GPSLatitudeRef]) {
-        lat = convertDMSToDD(gpsIFD[piexif.GPSIFD.GPSLatitude], gpsIFD[piexif.GPSIFD.GPSLatitudeRef]);
-      }
-      if (gpsIFD[piexif.GPSIFD.GPSLongitude] && gpsIFD[piexif.GPSIFD.GPSLongitudeRef]) {
-        lng = convertDMSToDD(gpsIFD[piexif.GPSIFD.GPSLongitude], gpsIFD[piexif.GPSIFD.GPSLongitudeRef]);
-      }
+        // EXIFデータ抽出
+        const make = exifObj.Make || null;
+        const model = exifObj.Model || null;
+        const dateTime = exifObj.DateTimeOriginal || null;
 
-      // 画像サイズ取得
-      const img = new Image();
-      img.onload = function() {
+        // GPS抽出
+        let lat = null, lng = null;
+        if (exifObj.latitude !== undefined && exifObj.longitude !== undefined) {
+          lat = exifObj.latitude;
+          lng = exifObj.longitude;
+        }
+
+        // JSON-LD生成
         const jsonLd = {
           "@context": "https://schema.org",
           "@type": "ImageObject",
           "name": file.name,
           "contentUrl": dataUrl,
           "encodingFormat": file.type,
-          "width": this.width,
-          "height": this.height,
+          "width": width,
+          "height": height,
           "author": { "@type": "Person", "name": "あなたの名前" }
         };
 
         if (dateTime) {
-          jsonLd.dateCreated = dateTime.split(' ')[0].replace(/:/g, '-');
+          jsonLd.dateCreated = new Date(dateTime).toISOString().split('T')[0];
           jsonLd.exifData = {
-            "cameraMake": make || null,
-            "cameraModel": model || null,
-            "originalDateTime": dateTime || null
+            "cameraMake": make,
+            "cameraModel": model,
+            "originalDateTime": dateTime
           };
         }
 
-        if (lat !== null && lng !== null) {
+        if (lat !== undefined && lng !== undefined) {
           jsonLd.contentLocation = {
             "@type": "Place",
             "geo": {
@@ -221,19 +214,10 @@ ${JSON.stringify(jsonLd, null, 2)}
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;');
         output.style.display = 'block';
-      };
-      img.src = dataUrl;
-    }
-
-    function convertDMSToDD(dms, ref) {
-      if (!dms || dms.length !== 3) return null;
-      const calc = (arr) => arr[0] / arr[1];
-      const d = calc(dms[0]);
-      const m = calc(dms[1]);
-      const s = calc(dms[2]);
-      let dd = d + m/60 + s/3600;
-      if (ref === 'S' || ref === 'W') dd = -dd;
-      return parseFloat(dd.toFixed(6));
+      } catch (err) {
+        console.error("エラー:", err);
+        alert("画像処理エラー: " + err.message);
+      }
     }
 
     copyBtn.addEventListener('click', () => {
