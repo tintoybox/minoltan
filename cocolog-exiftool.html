@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Cocolog投稿用テンプレート自動作成ツール</title>
-  <!-- piexifjs 最新版 -->
   <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
   <style>
     body {font-family: 'Segoe UI', sans-serif;max-width: 800px;margin: 2rem auto;padding: 1rem;background: #f9f9fb;color: #333;}
@@ -119,91 +118,91 @@
     }
 
     function processImage(file) {
-      // 1. ArrayBuffer で読み込み（piexifjs 用）
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        const arrayBuffer = e.target.result;
+      let dataUrl = '';
+      let exifObj = {};
 
-        // 2. プレビュー用に DataURL も生成
-        const reader2 = new FileReader();
-        reader2.onload = function(e2) {
-          const dataUrl = e2.target.result;
-          preview.innerHTML = `<img src="${dataUrl}" alt="プレビュー" />`;
+      // 1. DataURL で画像表示用
+      const readerDataUrl = new FileReader();
+      readerDataUrl.onload = function(e) {
+        dataUrl = e.target.result;
+        preview.innerHTML = `<img src="${dataUrl}" alt="プレビュー" />`;
 
-          // 3. EXIF 抽出
-          let exifObj = {};
+        // 2. ArrayBuffer で EXIF抽出
+        const readerExif = new FileReader();
+        readerExif.onload = function(e2) {
           try {
-            const jpeg = new Uint8Array(arrayBuffer);
-            const exifStr = piexif.dump({ "0th": {}, "Exif": {}, "GPS": {} }); // ダミー
-            exifObj = piexif.load(arrayBuffer);
+            exifObj = piexif.load(e2.target.result);
+            generateTemplate(file, dataUrl, exifObj);
           } catch (err) {
-            console.warn("EXIF読み込み失敗（非対応ファイル）:", err);
+            console.warn("EXIF読み込み失敗:", err);
+            generateTemplate(file, dataUrl, {});
           }
+        };
+        readerExif.readAsArrayBuffer(file);
+      };
+      readerDataUrl.readAsDataURL(file);
+    }
 
-          const zeroIFD = exifObj["0th"] || {};
-          const gpsIFD = exifObj["GPS"] || {};
+    function generateTemplate(file, dataUrl, exifObj) {
+      const zeroIFD = exifObj["0th"] || {};
+      const gpsIFD = exifObj["GPS"] || {};
 
-          const make = zeroIFD[piexif.ImageIFD.Make];
-          const model = zeroIFD[piexif.ImageIFD.Model];
-          const dateTime = zeroIFD[piexif.ImageIFD.DateTime];
+      const make = zeroIFD[piexif.ImageIFD.Make];
+      const model = zeroIFD[piexif.ImageIFD.Model];
+      const dateTime = zeroIFD[piexif.ImageIFD.DateTime];
 
-          // GPS
-          let lat = null, lng = null;
-          if (gpsIFD[piexif.GPSIFD.GPSLatitude] && gpsIFD[piexif.GPSIFD.GPSLatitudeRef]) {
-            lat = convertDMSToDD(gpsIFD[piexif.GPSIFD.GPSLatitude], gpsIFD[piexif.GPSIFD.GPSLatitudeRef]);
-          }
-          if (gpsIFD[piexif.GPSIFD.GPSLongitude] && gpsIFD[piexif.GPSIFD.GPSLongitudeRef]) {
-            lng = convertDMSToDD(gpsIFD[piexif.GPSIFD.GPSLongitude], gpsIFD[piexif.GPSIFD.GPSLongitudeRef]);
-          }
+      let lat = null, lng = null;
+      if (gpsIFD[piexif.GPSIFD.GPSLatitude] && gpsIFD[piexif.GPSIFD.GPSLatitudeRef]) {
+        lat = convertDMSToDD(gpsIFD[piexif.GPSIFD.GPSLatitude], gpsIFD[piexif.GPSIFD.GPSLatitudeRef]);
+      }
+      if (gpsIFD[piexif.GPSIFD.GPSLongitude] && gpsIFD[piexif.GPSIFD.GPSLongitudeRef]) {
+        lng = convertDMSToDD(gpsIFD[piexif.GPSIFD.GPSLongitude], gpsIFD[piexif.GPSIFD.GPSLongitudeRef]);
+      }
 
-          // JSON-LD
-          const jsonLd = {
-            "@context": "https://schema.org",
-            "@type": "ImageObject",
-            "name": file.name,
-            "contentUrl": dataUrl,
-            "encodingFormat": file.type,
-            "width": 0,  // 後で設定
-            "height": 0,
-            "author": { "@type": "Person", "name": "あなたの名前" }
+      // 画像サイズ取得
+      const img = new Image();
+      img.onload = function() {
+        const jsonLd = {
+          "@context": "https://schema.org",
+          "@type": "ImageObject",
+          "name": file.name,
+          "contentUrl": dataUrl,
+          "encodingFormat": file.type,
+          "width": this.width,
+          "height": this.height,
+          "author": { "@type": "Person", "name": "あなたの名前" }
+        };
+
+        if (dateTime) {
+          jsonLd.dateCreated = dateTime.split(' ')[0].replace(/:/g, '-');
+          jsonLd.exifData = {
+            "cameraMake": make || null,
+            "cameraModel": model || null,
+            "originalDateTime": dateTime || null
           };
+        }
 
-          if (dateTime) {
-            jsonLd.dateCreated = dateTime.split(' ')[0].replace(/:/g, '-');
-            jsonLd.exifData = {
-              "cameraMake": make || null,
-              "cameraModel": model || null,
-              "originalDateTime": dateTime || null
-            };
+        if (lat && lng) {
+          jsonLd.contentLocation = {
+            "@type": "Place",
+            "geo": {
+              "@type": "GeoCoordinates",
+              "latitude": lat,
+              "longitude": lng
+            }
+          };
+        }
+
+        // null削除
+        Object.keys(jsonLd).forEach(key => {
+          if (jsonLd[key] === null || (typeof jsonLd[key] === 'object' && Object.keys(jsonLd[key]).length === 0)) {
+            delete jsonLd[key];
+          } else if (typeof jsonLd[key] === 'object') {
+            Object.keys(jsonLd[key]).forEach(k => jsonLd[key][k] === null && delete jsonLd[key][k]);
           }
+        });
 
-          if (lat && lng) {
-            jsonLd.contentLocation = {
-              "@type": "Place",
-              "geo": {
-                "@type": "GeoCoordinates",
-                "latitude": lat,
-                "longitude": lng
-              }
-            };
-          }
-
-          // 画像サイズ取得
-          const img = new Image();
-          img.onload = function() {
-            jsonLd.width = this.width;
-            jsonLd.height = this.height;
-
-            // null削除
-            Object.keys(jsonLd).forEach(key => {
-              if (jsonLd[key] === null || (typeof jsonLd[key] === 'object' && Object.keys(jsonLd[key]).length === 0)) {
-                delete jsonLd[key];
-              } else if (typeof jsonLd[key] === 'object') {
-                Object.keys(jsonLd[key]).forEach(k => jsonLd[key][k] === null && delete jsonLd[key][k]);
-              }
-            });
-
-            const htmlTemplate = `
+        const htmlTemplate = `
 <!-- 写真 -->
 <p><img src="${dataUrl}" alt="${file.name}" style="max-width:100%; height:auto;" /></p>
 
@@ -216,17 +215,13 @@ ${JSON.stringify(jsonLd, null, 2)}
 <p>撮影日時: ${dateTime || '不明'} | カメラ: ${make || ''} ${model || ''}</p>
 `.trim();
 
-            code.innerHTML = htmlTemplate
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;');
-            output.style.display = 'block';
-          };
-          img.src = dataUrl;
-        };
-        reader2.readAsDataURL(file);
+        code.innerHTML = htmlTemplate
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        output.style.display = 'block';
       };
-      reader.readAsArrayBuffer(file);  // ここが重要！
+      img.src = dataUrl;
     }
 
     function convertDMSToDD(dms, ref) {
