@@ -121,7 +121,7 @@
       let dataUrl = '';
       let exifObj = {};
 
-      // 1. DataURL で画像表示用
+      // 1. DataURL で画像表示 + JSON-LD用
       const readerDataUrl = new FileReader();
       readerDataUrl.onload = function(e) {
         dataUrl = e.target.result;
@@ -132,11 +132,11 @@
         readerExif.onload = function(e2) {
           try {
             exifObj = piexif.load(e2.target.result);
-            generateTemplate(file, dataUrl, exifObj);
           } catch (err) {
             console.warn("EXIF読み込み失敗:", err);
-            generateTemplate(file, dataUrl, {});
+            exifObj = {};
           }
+          generateTemplate(file, dataUrl, exifObj);
         };
         readerExif.readAsArrayBuffer(file);
       };
@@ -182,7 +182,7 @@
           };
         }
 
-        if (lat && lng) {
+        if (lat !== null && lng !== null) {
           jsonLd.contentLocation = {
             "@type": "Place",
             "geo": {
