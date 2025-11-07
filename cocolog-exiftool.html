@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Cocolog投稿用テンプレート自動作成ツール</title>
-  <!-- piexifjs に変更 -->
+  <!-- piexifjs 最新版 -->
   <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
   <style>
     body {font-family: 'Segoe UI', sans-serif;max-width: 800px;margin: 2rem auto;padding: 1rem;background: #f9f9fb;color: #333;}
@@ -119,54 +119,63 @@
     }
 
     function processImage(file) {
+      // 1. ArrayBuffer で読み込み（piexifjs 用）
       const reader = new FileReader();
       reader.onload = function(e) {
-        const img = new Image();
-        img.onload = function() {
-          preview.innerHTML = `<img src="${e.target.result}" alt="プレビュー" />`;
+        const arrayBuffer = e.target.result;
 
-          // piexifjs で EXIF 抽出
-          let exif = {};
+        // 2. プレビュー用に DataURL も生成
+        const reader2 = new FileReader();
+        reader2.onload = function(e2) {
+          const dataUrl = e2.target.result;
+          preview.innerHTML = `<img src="${dataUrl}" alt="プレビュー" />`;
+
+          // 3. EXIF 抽出
+          let exifObj = {};
           try {
-            const jpeg = new Uint8Array(e.target.result);
-            exif = piexif.load(e.target.result);
+            const jpeg = new Uint8Array(arrayBuffer);
+            const exifStr = piexif.dump({ "0th": {}, "Exif": {}, "GPS": {} }); // ダミー
+            exifObj = piexif.load(arrayBuffer);
           } catch (err) {
-            console.warn("EXIF読み込み失敗:", err);
+            console.warn("EXIF読み込み失敗（非対応ファイル）:", err);
           }
 
-          const exifObj = exif["0th"] || {};
-          const gpsObj = exif["GPS"] || {};
+          const zeroIFD = exifObj["0th"] || {};
+          const gpsIFD = exifObj["GPS"] || {};
 
-          const make = exifObj[piexif.ImageIFD.Make];
-          const model = exifObj[piexif.ImageIFD.Model];
-          const dateTime = exifObj[piexif.ImageIFD.DateTime];
+          const make = zeroIFD[piexif.ImageIFD.Make];
+          const model = zeroIFD[piexif.ImageIFD.Model];
+          const dateTime = zeroIFD[piexif.ImageIFD.DateTime];
 
-          // GPS座標
-          const lat = gpsObj[piexif.GPSIFD.GPSLatitude] ? convertDMSToDD(
-            gpsObj[piexif.GPSIFD.GPSLatitude],
-            gpsObj[piexif.GPSIFD.GPSLatitudeRef]
-          ) : null;
-          const lng = gpsObj[piexif.GPSIFD.GPSLongitude] ? convertDMSToDD(
-            gpsObj[piexif.GPSIFD.GPSLongitude],
-            gpsObj[piexif.GPSIFD.GPSLongitudeRef]
-          ) : null;
+          // GPS
+          let lat = null, lng = null;
+          if (gpsIFD[piexif.GPSIFD.GPSLatitude] && gpsIFD[piexif.GPSIFD.GPSLatitudeRef]) {
+            lat = convertDMSToDD(gpsIFD[piexif.GPSIFD.GPSLatitude], gpsIFD[piexif.GPSIFD.GPSLatitudeRef]);
+          }
+          if (gpsIFD[piexif.GPSIFD.GPSLongitude] && gpsIFD[piexif.GPSIFD.GPSLongitudeRef]) {
+            lng = convertDMSToDD(gpsIFD[piexif.GPSIFD.GPSLongitude], gpsIFD[piexif.GPSIFD.GPSLongitudeRef]);
+          }
 
+          // JSON-LD
           const jsonLd = {
             "@context": "https://schema.org",
             "@type": "ImageObject",
             "name": file.name,
-            "contentUrl": e.target.result,
+            "contentUrl": dataUrl,
             "encodingFormat": file.type,
-            "width": this.width,
-            "height": this.height,
-            "dateCreated": dateTime ? dateTime.replace(/:/g, '-', 0, 2) : null,
-            "author": { "@type": "Person", "name": "あなたの名前" },
-            "exifData": {
+            "width": 0,  // 後で設定
+            "height": 0,
+            "author": { "@type": "Person", "name": "あなたの名前" }
+          };
+
+          if (dateTime) {
+            jsonLd.dateCreated = dateTime.split(' ')[0].replace(/:/g, '-');
+            jsonLd.exifData = {
               "cameraMake": make || null,
               "cameraModel": model || null,
               "originalDateTime": dateTime || null
-            }
-          };
+            };
+          }
 
           if (lat && lng) {
             jsonLd.contentLocation = {
@@ -179,17 +188,24 @@
             };
           }
 
-          // null削除
-          Object.keys(jsonLd).forEach(key => {
-            if (jsonLd[key] === null) delete jsonLd[key];
-            if (typeof jsonLd[key] === 'object') {
-              Object.keys(jsonLd[key]).forEach(k => jsonLd[key][k] === null && delete jsonLd[key][k]);
-            }
-          });
+          // 画像サイズ取得
+          const img = new Image();
+          img.onload = function() {
+            jsonLd.width = this.width;
+            jsonLd.height = this.height;
 
-          const htmlTemplate = `
+            // null削除
+            Object.keys(jsonLd).forEach(key => {
+              if (jsonLd[key] === null || (typeof jsonLd[key] === 'object' && Object.keys(jsonLd[key]).length === 0)) {
+                delete jsonLd[key];
+              } else if (typeof jsonLd[key] === 'object') {
+                Object.keys(jsonLd[key]).forEach(k => jsonLd[key][k] === null && delete jsonLd[key][k]);
+              }
+            });
+
+            const htmlTemplate = `
 <!-- 写真 -->
-<p><img src="${e.target.result}" alt="${file.name}" style="max-width:100%; height:auto;" /></p>
+<p><img src="${dataUrl}" alt="${file.name}" style="max-width:100%; height:auto;" /></p>
 
 <!-- 構造化データ（JSON-LD） -->
 <script type="application/ld+json">
@@ -200,20 +216,25 @@ ${JSON.stringify(jsonLd, null, 2)}
 <p>撮影日時: ${dateTime || '不明'} | カメラ: ${make || ''} ${model || ''}</p>
 `.trim();
 
-          code.innerHTML = htmlTemplate
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-          output.style.display = 'block';
+            code.innerHTML = htmlTemplate
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+            output.style.display = 'block';
+          };
+          img.src = dataUrl;
         };
-        img.src = e.target.result;
+        reader2.readAsDataURL(file);
       };
-      reader.readAsArrayBuffer(file);  // piexifjs 用に ArrayBuffer
+      reader.readAsArrayBuffer(file);  // ここが重要！
     }
 
     function convertDMSToDD(dms, ref) {
-      if (!dms || dms.length < 3) return null;
-      const [d, m, s] = dms.map(x => x[0] / x[1]);
+      if (!dms || dms.length !== 3) return null;
+      const calc = (arr) => arr[0] / arr[1];
+      const d = calc(dms[0]);
+      const m = calc(dms[1]);
+      const s = calc(dms[2]);
       let dd = d + m/60 + s/3600;
       if (ref === 'S' || ref === 'W') dd = -dd;
       return parseFloat(dd.toFixed(6));
