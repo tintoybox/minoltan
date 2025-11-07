@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Cocolog投稿用テンプレート自動作成ツール</title>
-  <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+  <!-- piexifjs に変更 -->
+  <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
   <style>
     body {font-family: 'Segoe UI', sans-serif;max-width: 800px;margin: 2rem auto;padding: 1rem;background: #f9f9fb;color: #333;}
     h1 { color: #2c3e50; text-align: center; }
@@ -124,56 +125,69 @@
         img.onload = function() {
           preview.innerHTML = `<img src="${e.target.result}" alt="プレビュー" />`;
 
-          EXIF.getData(img, function() {
-            const exif = {
-              make: EXIF.getTag(this, "Make"),
-              model: EXIF.getTag(this, "Model"),
-              dateTime: EXIF.getTag(this, "DateTimeOriginal"),
-              gpsLat: EXIF.getTag(this, "GPSLatitude"),
-              gpsLatRef: EXIF.getTag(this, "GPSLatitudeRef"),
-              gpsLng: EXIF.getTag(this, "GPSLongitude"),
-              gpsLngRef: EXIF.getTag(this, "GPSLongitudeRef")
-            };
+          // piexifjs で EXIF 抽出
+          let exif = {};
+          try {
+            const jpeg = new Uint8Array(e.target.result);
+            exif = piexif.load(e.target.result);
+          } catch (err) {
+            console.warn("EXIF読み込み失敗:", err);
+          }
 
-            const lat = exif.gpsLat ? convertDMSToDD(exif.gpsLat, exif.gpsLatRef) : null;
-            const lng = exif.gpsLng ? convertDMSToDD(exif.gpsLng, exif.gpsLngRef) : null;
+          const exifObj = exif["0th"] || {};
+          const gpsObj = exif["GPS"] || {};
 
-            const jsonLd = {
-              "@context": "https://schema.org",
-              "@type": "ImageObject",
-              "name": file.name,
-              "contentUrl": e.target.result,
-              "encodingFormat": file.type,
-              "width": this.width,
-              "height": this.height,
-              "dateCreated": exif.dateTime ? exif.dateTime.replace(/:/g, '-', 0, 2) : null,
-              "author": { "@type": "Person", "name": "あなたの名前" },
-              "exifData": {
-                "cameraMake": exif.make || null,
-                "cameraModel": exif.model || null,
-                "originalDateTime": exif.dateTime || null
-              }
-            };
+          const make = exifObj[piexif.ImageIFD.Make];
+          const model = exifObj[piexif.ImageIFD.Model];
+          const dateTime = exifObj[piexif.ImageIFD.DateTime];
 
-            if (lat && lng) {
-              jsonLd.contentLocation = {
-                "@type": "Place",
-                "geo": {
-                  "@type": "GeoCoordinates",
-                  "latitude": lat,
-                  "longitude": lng
-                }
-              };
+          // GPS座標
+          const lat = gpsObj[piexif.GPSIFD.GPSLatitude] ? convertDMSToDD(
+            gpsObj[piexif.GPSIFD.GPSLatitude],
+            gpsObj[piexif.GPSIFD.GPSLatitudeRef]
+          ) : null;
+          const lng = gpsObj[piexif.GPSIFD.GPSLongitude] ? convertDMSToDD(
+            gpsObj[piexif.GPSIFD.GPSLongitude],
+            gpsObj[piexif.GPSIFD.GPSLongitudeRef]
+          ) : null;
+
+          const jsonLd = {
+            "@context": "https://schema.org",
+            "@type": "ImageObject",
+            "name": file.name,
+            "contentUrl": e.target.result,
+            "encodingFormat": file.type,
+            "width": this.width,
+            "height": this.height,
+            "dateCreated": dateTime ? dateTime.replace(/:/g, '-', 0, 2) : null,
+            "author": { "@type": "Person", "name": "あなたの名前" },
+            "exifData": {
+              "cameraMake": make || null,
+              "cameraModel": model || null,
+              "originalDateTime": dateTime || null
             }
+          };
 
-            Object.keys(jsonLd).forEach(key => {
-              if (jsonLd[key] === null) delete jsonLd[key];
-              if (typeof jsonемонLd[key] === 'object') {
-                Object.keys(jsonLd[key]).forEach(k => jsonLd[key][k] === null && delete jsonLd[key][k]);
+          if (lat && lng) {
+            jsonLd.contentLocation = {
+              "@type": "Place",
+              "geo": {
+                "@type": "GeoCoordinates",
+                "latitude": lat,
+                "longitude": lng
               }
-            });
+            };
+          }
 
-            const htmlTemplate = `
+          // null削除
+          Object.keys(jsonLd).forEach(key => {
+            if (jsonLd[key] === null) delete jsonLd[key];
+            if (typeof jsonLd[key] === 'object') {
+              Object.keys(jsonLd[key]).forEach(k => jsonLd[key][k] === null && delete jsonLd[key][k]);
+            }
+          });
+
+          const htmlTemplate = `
 <!-- 写真 -->
 <p><img src="${e.target.result}" alt="${file.name}" style="max-width:100%; height:auto;" /></p>
 
@@ -183,24 +197,23 @@ ${JSON.stringify(jsonLd, null, 2)}
 <\/script>
 
 <!-- キャプション（任意） -->
-<p>撮影日時: ${exif.dateTime || '不明'} | カメラ: ${exif.make || ''} ${exif.model || ''}</p>
+<p>撮影日時: ${dateTime || '不明'} | カメラ: ${make || ''} ${model || ''}</p>
 `.trim();
 
-            code.innerHTML = htmlTemplate
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;');
-            output.style.display = 'block';
-          });
+          code.innerHTML = htmlTemplate
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          output.style.display = 'block';
         };
         img.src = e.target.result;
       };
-      reader.readAsDataURL(file);
+      reader.readAsArrayBuffer(file);  // piexifjs 用に ArrayBuffer
     }
 
     function convertDMSToDD(dms, ref) {
       if (!dms || dms.length < 3) return null;
-      const [d, m, s] = dms.map(parseFloat);
+      const [d, m, s] = dms.map(x => x[0] / x[1]);
       let dd = d + m/60 + s/3600;
       if (ref === 'S' || ref === 'W') dd = -dd;
       return parseFloat(dd.toFixed(6));
