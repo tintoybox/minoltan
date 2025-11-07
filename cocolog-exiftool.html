@@ -131,6 +131,7 @@
         const readerExif = new FileReader();
         readerExif.onload = function(e2) {
           try {
+            // ここが重要！ArrayBufferを渡す
             exifObj = piexif.load(e2.target.result);
           } catch (err) {
             console.warn("EXIF読み込み失敗:", err);
@@ -138,9 +139,9 @@
           }
           generateTemplate(file, dataUrl, exifObj);
         };
-        readerExif.readAsArrayBuffer(file);
+        readerExif.readAsArrayBuffer(file);  // ArrayBuffer！
       };
-      readerDataUrl.readAsDataURL(file);
+      readerDataUrl.readAsDataURL(file);  // DataURL！
     }
 
     function generateTemplate(file, dataUrl, exifObj) {
